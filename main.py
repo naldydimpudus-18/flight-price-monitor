@@ -1,62 +1,13 @@
-import os
-import json
-import gspread
-import requests
-from google.oauth2.service_account import Credentials
-from datetime import datetime
+from playwright.sync_api import sync_playwright
 
-# Google Credentials dari GitHub Secret
-creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+with sync_playwright() as p:
+    browser = p.chromium.launch(headless=True)
 
-scopes = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
+    page = browser.new_page()
 
-creds = Credentials.from_service_account_info(
-    creds_dict,
-    scopes=scopes
-)
+    page.goto("https://www.google.com")
 
-client = gspread.authorize(creds)
+    print("PAGE TITLE:")
+    print(page.title())
 
-# Buka Google Sheet
-sheet = client.open_by_key(os.environ["SHEET_ID"])
-
-try:
-    worksheet = sheet.worksheet("PriceLog")
-except:
-    worksheet = sheet.sheet1
-
-# Data test
-timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-row = [
-    timestamp,
-    "TEST-DPS-GTO",
-    "999999",
-    "GitHub Test"
-]
-
-worksheet.append_row(row)
-
-# Kirim Telegram
-message = f"""✅ Flight Monitor Test
-
-Time:
-{timestamp}
-
-Google Sheet berhasil diupdate.
-"""
-
-url = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/sendMessage"
-
-requests.post(
-    url,
-    json={
-        "chat_id": os.environ["TELEGRAM_CHAT_ID"],
-        "text": message
-    }
-)
-
-print("Success")
+    browser.close()
