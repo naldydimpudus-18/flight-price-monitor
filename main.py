@@ -31,8 +31,15 @@ sheet = client.open_by_key(
     os.environ["SHEET_ID"]
 )
 
+print("================================")
+print("SHEET:", sheet.title)
+print("================================")
+
 routes_ws = sheet.worksheet("Routes")
 price_ws = sheet.worksheet("PriceLog")
+
+print("ROUTES SHEET FOUND")
+print("PRICELOG SHEET FOUND")
 
 # ==========================
 # TELEGRAM
@@ -53,6 +60,9 @@ USD_TO_IDR = 16500
 
 routes = routes_ws.get_all_records()
 
+print("ROUTES DATA:")
+print(routes)
+
 message = "✈️ Flight Monitor\n\n"
 
 # ==========================
@@ -67,15 +77,12 @@ with sync_playwright() as p:
 
     for row in routes:
 
+        print("ROW:", row)
+
         route = row["Route"]
         origin = row["Origin"]
         destination = row["Destination"]
         flight_date = row["FlightDate"]
-
-        url = (
-            f"https://www.google.com/travel/flights?"
-            f"hl=en"
-        )
 
         print(f"Checking {route}")
 
@@ -100,9 +107,7 @@ with sync_playwright() as p:
 
             idr_price = usd_price * USD_TO_IDR
 
-            print(
-                f"{route} : Rp {idr_price:,}"
-            )
+            print(f"{route} : Rp {idr_price:,}")
 
             timestamp = datetime.now().strftime(
                 "%Y-%m-%d %H:%M:%S"
@@ -113,6 +118,8 @@ with sync_playwright() as p:
                 route,
                 idr_price
             ])
+
+            print("ROW ADDED TO PRICELOG")
 
             message += (
                 f"{route}\n"
@@ -136,12 +143,15 @@ with sync_playwright() as p:
 # SEND TELEGRAM
 # ==========================
 
-requests.post(
+response = requests.post(
     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
     data={
         "chat_id": CHAT_ID,
         "text": message
     }
 )
+
+print("TELEGRAM RESPONSE:")
+print(response.text)
 
 print("DONE")
