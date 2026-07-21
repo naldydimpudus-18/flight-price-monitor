@@ -1,56 +1,91 @@
-from playwright.sync_api import sync_playwright
-import gspread
-from google.oauth2.service_account import Credentials
 import os
 import json
 import re
 from datetime import datetime
 
-# =====================
-# GOOGLE SHEETS LOGIN
-# =====================
+import gspread
+import requests
 
-creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+from oauth2client.service_account import ServiceAccountCredentials
+from playwright.sync_api import sync_playwright
 
-scopes = [
-    "https://www.googleapis.com/auth/spreadsheets",
+# ==========================
+# GOOGLE SHEETS
+# ==========================
+
+scope = [
+    "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
 ]
 
-creds = Credentials.from_service_account_info(
-    creds_dict,
-    scopes=scopes
+creds_json = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+
+creds = ServiceAccountCredentials.from_json_keyfile_dict(
+    creds_json,
+    scope
 )
 
 client = gspread.authorize(creds)
 
-sheet = client.open_by_key(os.environ["SHEET_ID"])
+sheet = client.open_by_key(
+    os.environ["SHEET_ID"]
+)
 
 routes_ws = sheet.worksheet("Routes")
-pricelog_ws = sheet.worksheet("PriceLog")
+price_ws = sheet.worksheet("PriceLog")
 
-# =====================
-# GOOGLE FLIGHTS CHECK
-# =====================
+# ==========================
+# TELEGRAM
+# ==========================
 
-URLS = {
-    "DPS-GTO": "https://www.google.com/travel/flights/search?tfs=CBwQAhokEgoyMDI2LTEyLTIxag0IAhIJL20vMDJuYmgxcgcIARIDR1RPQAFIAXABggELCP___________wGYAQI",
-    "DPS-MDC": "https://www.google.com/travel/flights/search?tfs=CBwQAhokEgoyMDI2LTEyLTIxag0IAhIJL20vMDJuYmgxcgcIARIDTURDQAFIAXABggELCP___________wGYAQI&tfu=EgYIABAAGAA",
-    "DPS-PLW": "https://www.google.com/travel/flights/search?tfs=CBwQAhokEgoyMDI2LTEyLTIxag0IAhIJL20vMDJuYmgxcgcIARIDUExXQAFIAXABggELCP___________wGYAQI&tfu=EgYIABAAGAA"
-}
+BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+
+# ==========================
+# EXCHANGE RATE
+# ==========================
+
+USD_TO_IDR = 16500
+
+# ==========================
+# READ ROUTES
+# ==========================
+
+routes = routes_ws.get_all_records()
+
+message = "✈️ Flight Monitor\n\n"
+
+# ==========================
+# CHECK ROUTES
+# ==========================
 
 with sync_playwright() as p:
 
     browser = p.chromium.launch(headless=True)
 
-    for route, url in URLS.items():
+    page = browser.new_page()
 
-        page = browser.new_page()
+    for row in routes:
+
+        route = row["Route"]
+        origin = row["Origin"]
+        destination = row["Destination"]
+        flight_date = row["FlightDate"]
+
+        url = (
+            f"https://www.google.com/travel/flights?"
+            f"hl=en"
+        )
 
         print(f"Checking {route}")
 
+        search_url = (
+            f"https://www.google.com/travel/flights/search?"
+            f"tfs=CBwQAhokEgoyMDI2LTEyLTIxag0IAhIJL20vMDJuYmgxcgcIARID{destination}QAFIAXABggELCP___________wGYAQI"
+        )
+
         page.goto(
-            url,
+            search_url,
             wait_until="networkidle",
             timeout=120000
         )
@@ -63,21 +98,25 @@ with sync_playwright() as p:
 
             usd_price = int(match.group(1))
 
-            idr_price = usd_price * 16500
+            idr_price = usd_price * USD_TO_IDR
+
+            print(
+                f"{route} : Rp {idr_price:,}"
+            )
 
             timestamp = datetime.now().strftime(
                 "%Y-%m-%d %H:%M:%S"
             )
 
-            pricelog_ws.append_row([
+            price_ws.append_row([
                 timestamp,
                 route,
-                usd_price,
                 idr_price
             ])
 
-            print(
-                f"{route} : USD {usd_price} | IDR {idr_price}"
+            message += (
+                f"{route}\n"
+                f"Rp {idr_price:,.0f}\n\n"
             )
 
         else:
@@ -86,6 +125,23 @@ with sync_playwright() as p:
                 f"{route} : PRICE NOT FOUND"
             )
 
-        page.close()
+            message += (
+                f"{route}\n"
+                f"Harga tidak ditemukan\n\n"
+            )
 
     browser.close()
+
+# ==========================
+# SEND TELEGRAM
+# ==========================
+
+requests.post(
+    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+    data={
+        "chat_id": CHAT_ID,
+        "text": message
+    }
+)
+
+print("DONE")
