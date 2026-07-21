@@ -1,4 +1,4 @@
-gspread
-google-auth
-requests
 playwright
+gspread
+oauth2client
+requests
